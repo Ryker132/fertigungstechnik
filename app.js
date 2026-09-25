@@ -28,6 +28,44 @@ function esc(value) {
   }[ch]));
 }
 
+const GLOSSAR_BY_ID = Object.fromEntries((window.GLOSSAR || []).map((entry) => [entry.id, entry]));
+const GLOSSAR_ALIASES = (window.GLOSSAR || [])
+  .flatMap((entry) => entry.aliases.map((alias) => ({ alias, id: entry.id, len: alias.length })))
+  .sort((a, b) => b.len - a.len);
+
+function rich(raw) {
+  const text = String(raw ?? "");
+  if (!text || !GLOSSAR_ALIASES.length) return esc(text);
+  const lower = text.toLowerCase();
+  const hits = [];
+  for (const item of GLOSSAR_ALIASES) {
+    const alias = item.alias.toLowerCase();
+    let from = 0;
+    while (from < lower.length) {
+      const at = lower.indexOf(alias, from);
+      if (at < 0) break;
+      hits.push({ start: at, end: at + alias.length, id: item.id, len: item.len });
+      from = at + alias.length;
+    }
+  }
+  hits.sort((a, b) => b.len - a.len || a.start - b.start);
+  const chosen = [];
+  for (const hit of hits) {
+    if (chosen.some((other) => hit.start < other.end && other.start < hit.end)) continue;
+    chosen.push(hit);
+  }
+  chosen.sort((a, b) => a.start - b.start);
+  let html = "";
+  let at = 0;
+  for (const hit of chosen) {
+    html += esc(text.slice(at, hit.start));
+    html += `<button type="button" class="term" data-gloss="${esc(hit.id)}">${esc(text.slice(hit.start, hit.end))}</button>`;
+    at = hit.end;
+  }
+  html += esc(text.slice(at));
+  return html;
+}
+
 function imgOf(file, n) {
   return `slides/${file}/${String(n).padStart(3, "0")}.jpg`;
 }
@@ -118,11 +156,11 @@ function parseHash() {
 }
 
 function renderEl(el) {
-  if (el.t === "p") return `<p>${esc(el.text)}</p>`;
-  if (el.t === "label") return `<p class="label">${esc(el.text)}</p>`;
+  if (el.t === "p") return `<p>${rich(el.text)}</p>`;
+  if (el.t === "label") return `<p class="label">${rich(el.text)}</p>`;
   if (el.t === "source") return `<p class="source">${esc(el.text)}</p>`;
-  if (el.t === "ul") return `<ul>${el.items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`;
-  if (el.t === "ol") return `<ol>${el.items.map((item) => `<li>${esc(item)}</li>`).join("")}</ol>`;
+  if (el.t === "ul") return `<ul>${el.items.map((item) => `<li>${rich(item)}</li>`).join("")}</ul>`;
+  if (el.t === "ol") return `<ol>${el.items.map((item) => `<li>${rich(item)}</li>`).join("")}</ol>`;
   if (el.t === "cols") {
     return `<div class="cols">${el.cols.map((col) => `<div>${col.map(renderEl).join("")}</div>`).join("")}</div>`;
   }
@@ -134,7 +172,7 @@ function renderBlocks(blocks) {
   return blocks.map((el) => {
     if (!leadUsed && el.t === "p" && el.text.length > 80) {
       leadUsed = true;
-      return `<p class="lead">${esc(el.text)}</p>`;
+      return `<p class="lead">${rich(el.text)}</p>`;
     }
     return renderEl(el);
   }).join("");
@@ -289,7 +327,7 @@ function moduleView(id) {
         <span><span class="code">${esc(sec.code || mod.source)}</span><br><b>${esc(sec.title)}</b></span>
         <span class="quiet">${sec.slides.length} Folien</span>
       </div>
-      <p class="preview">${esc(preview)}${esc(more)}</p>
+      <p class="preview">${rich(preview)}${esc(more)}</p>
     </a>`;
   }).join("");
   shell(`
@@ -298,7 +336,7 @@ function moduleView(id) {
       <p class="kicker" style="color:var(--accent)">${esc(mod.kicker)} · ${esc(mod.source)}</p>
       <h2>${esc(mod.title)}</h2>
       ${mod.verb ? `<p class="verb">${esc(mod.verb)}</p>` : ""}
-      ${mod.definition ? `<p class="definition">${esc(mod.definition)}</p>` : ""}
+      ${mod.definition ? `<p class="definition">${rich(mod.definition)}</p>` : ""}
     </header>
     <div class="section-head"><div><h2>Aufbau laut Inhaltsverzeichnis</h2><p>Zuerst der Abschnitt, danach jede Folie.</p></div></div>
     <div class="sec-list">${sections}</div>
@@ -366,7 +404,8 @@ function slideView(modId, secId, index) {
   const reading = slide.blocks.length
     ? `<article class="reading">
         ${slide.kind === "question" ? `<p class="label">Frage auf der Folie</p>` : `<p class="code">${esc(sec.code)} · Folie ${slide.n}</p>`}
-        <h2>${esc(slide.title)}</h2>
+        <h2>${rich(slide.title)}</h2>
+        <p class="source">Gestrichelte Wörter antippen. Dann kommt eine Erklärung, und wo es passt ein Video.</p>
         ${renderBlocks(slide.blocks)}
       </article>`
     : "";
@@ -427,7 +466,54 @@ app.addEventListener("submit", (event) => {
   location.hash = `#/suche/${encodeURIComponent(q)}`;
 });
 
+function closeGloss() {
+  const gloss = document.getElementById("gloss");
+  gloss.hidden = true;
+  gloss.innerHTML = "";
+}
+
+function openGloss(id) {
+  const entry = GLOSSAR_BY_ID[id];
+  if (!entry) return;
+  const gloss = document.getElementById("gloss");
+  const video = entry.video
+    ? `<button type="button" class="btn" id="gloss-play">Video ansehen</button>
+       <p class="source">${esc(entry.video.title)} · ${esc(entry.video.by)}</p>
+       <div id="gloss-frame"></div>`
+    : "";
+  gloss.hidden = false;
+  gloss.innerHTML = `
+    <article class="gloss-card" role="dialog" aria-modal="true" aria-labelledby="gloss-title">
+      <div class="gloss-top">
+        <p class="label">Zum Nachschlagen</p>
+        <button type="button" class="btn ghost" data-gloss-close>Schließen</button>
+      </div>
+      <h3 id="gloss-title">${esc(entry.title)}</h3>
+      <p>${esc(entry.text)}</p>
+      ${video}
+      <p class="source">Diese Erklärung steht nicht auf der Folie. Für die Klausur gilt der Wortlaut dort.</p>
+    </article>
+  `;
+  document.getElementById("gloss-play")?.addEventListener("click", () => {
+    const start = entry.video.start ? `&start=${entry.video.start}` : "";
+    document.getElementById("gloss-frame").innerHTML = `
+      <iframe title="${esc(entry.video.title)}"
+        src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(entry.video.id)}?rel=0${start}"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen></iframe>
+      <p class="source"><a href="https://www.youtube.com/watch?v=${encodeURIComponent(entry.video.id)}" target="_blank" rel="noopener">Auf YouTube öffnen</a></p>
+    `;
+  });
+}
+
 app.addEventListener("click", (event) => {
+  const term = event.target.closest("[data-gloss]");
+  if (term) {
+    event.preventDefault();
+    event.stopPropagation();
+    openGloss(term.dataset.gloss);
+    return;
+  }
   const button = event.target.closest("[data-zoom]");
   if (!button) return;
   lightbox.hidden = false;
@@ -439,10 +525,19 @@ lightbox.addEventListener("click", () => {
   lightbox.innerHTML = "";
 });
 
+document.getElementById("gloss").addEventListener("click", (event) => {
+  if (event.target.id === "gloss" || event.target.closest("[data-gloss-close]")) closeGloss();
+});
+
 window.addEventListener("hashchange", render);
 window.addEventListener("keydown", (event) => {
   if (event.target.matches("input, textarea")) return;
   if (event.key === "Escape") {
+    const gloss = document.getElementById("gloss");
+    if (gloss && !gloss.hidden) {
+      closeGloss();
+      return;
+    }
     if (!lightbox.hidden) {
       lightbox.hidden = true;
       lightbox.innerHTML = "";

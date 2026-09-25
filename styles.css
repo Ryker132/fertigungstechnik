@@ -704,3 +704,80 @@ tbody th {
   html { scroll-behavior: auto; }
   .din a:hover, .path a.step:hover { transform: none; }
 }
+
+button.term {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed var(--accent);
+  border-radius: 0;
+  padding: 0 0.05em;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+button.term:hover,
+button.term:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+#gloss[hidden] { display: none; }
+
+#gloss {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: rgba(18, 14, 10, 0.46);
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  padding: 16px;
+}
+
+.gloss-card {
+  width: min(680px, 100%);
+  max-height: min(88vh, 820px);
+  overflow: auto;
+  background: #fbf7f0;
+  color: var(--ink);
+  border-radius: 24px 24px 18px 18px;
+  padding: 18px 20px 22px;
+  box-shadow: var(--shadow);
+}
+
+.gloss-card h3 {
+  font-family: var(--serif);
+  font-size: 32px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin: 0 0 10px;
+}
+
+.gloss-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.gloss-card iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 14px;
+  margin-top: 12px;
+  background: #111;
+}
+
+.gloss-card .btn { margin-top: 8px; }
+
+@media (min-width: 800px) {
+  #gloss { align-items: center; }
+  .gloss-card { border-radius: 24px; }
+}
