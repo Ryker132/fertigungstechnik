@@ -44,7 +44,17 @@ function rich(raw) {
     while (from < lower.length) {
       const at = lower.indexOf(alias, from);
       if (at < 0) break;
-      hits.push({ start: at, end: at + alias.length, id: item.id, len: item.len });
+      const end = at + alias.length;
+      const before = at > 0 ? text[at - 1] : "";
+      const after = end < text.length ? text[end] : "";
+      const letter = (ch) => /[A-Za-zÄÖÜäöüß]/.test(ch);
+      const insideWord = letter(before) || letter(after);
+      if (!insideWord || alias.length >= 8) {
+        let stop = end;
+        const tail = /^(es|en|er|em|e|n|s)(?![A-Za-zÄÖÜäöüß])/.exec(text.slice(end));
+        if (tail) stop += tail[1].length;
+        hits.push({ start: at, end: stop, id: item.id, len: item.len });
+      }
       from = at + alias.length;
     }
   }

@@ -81,7 +81,7 @@ window.GLOSSAR = [
   {
     id: "maskenform",
     title: "Maskenformverfahren",
-    aliases: ["Maskenform"],
+    aliases: ["Maskenform", "Croning"],
     text: "Auf ein heißes Modell wird harzgebundener Sand gestreut. Es härtet eine dünne Schale aus, die Maske. Diese Schale ist die Form und wird nach dem Guss zerstört. Sie ist genauer als eine dicke Sandform."
   },
   {
@@ -270,7 +270,7 @@ window.GLOSSAR = [
   {
     id: "spanen",
     title: "Spanen",
-    aliases: ["Zerspanen", "Spanende", "Spanen"],
+    aliases: ["Zerspantechnik", "Zerspanung", "Zerspanen", "Spanende", "Spanen"],
     text: "Eine Schneide nimmt Werkstoff als Span ab. Die Form entsteht, indem Material weg ist, nicht indem es umgeformt wird. Drehen, Fräsen und Bohren sind die drei großen Varianten.",
     video: { id: "yscfd1STXM0", title: "Grundlagen Spanen", by: "Andreas Höfler" }
   },
