@@ -330,13 +330,14 @@ function moduleView(id) {
       <p class="preview">${rich(preview)}${esc(more)}</p>
     </a>`;
   }).join("");
+  speechSets.module = dedupeSpeech([mod.title, mod.verb, mod.definition]);
   shell(`
     <nav class="crumbs"><a href="#/">Überblick</a> <span>/</span> <span>${esc(mod.title)}</span></nav>
     <header class="mod-head">
       <p class="kicker" style="color:var(--accent)">${esc(mod.kicker)} · ${esc(mod.source)}</p>
       <h2>${esc(mod.title)}</h2>
       ${mod.verb ? `<p class="verb">${esc(mod.verb)}</p>` : ""}
-      ${mod.definition ? `<p class="definition">${rich(mod.definition)}</p>` : ""}
+      ${mod.definition ? `<p class="definition">${rich(mod.definition)}</p>${canSpeak ? `<p><button type="button" class="btn ghost" data-speak="module">Vorlesen</button></p>` : ""}` : ""}
     </header>
     <div class="section-head"><div><h2>Aufbau laut Inhaltsverzeichnis</h2><p>Zuerst der Abschnitt, danach jede Folie.</p></div></div>
     <div class="sec-list">${sections}</div>
@@ -374,6 +375,147 @@ function sectionView(modId, secId) {
   `, mod.id);
 }
 
+const canSpeak = typeof window.speechSynthesis === "object" && window.speechSynthesis !== null;
+const speechSets = { slide: [], module: [], gloss: [] };
+let speechGen = 0;
+
+function squeezeRepeats(input) {
+  let text = String(input ?? "").replace(/\s+/g, " ").trim();
+  const words = text.split(" ");
+  if (words.length >= 4 && words.length % 2 === 0) {
+    const half = words.length / 2;
+    const left = words.slice(0, half).join(" ");
+    const right = words.slice(half).join(" ");
+    if (left.toLowerCase() === right.toLowerCase()) text = left;
+  }
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const kept = [];
+  for (const sentence of sentences) {
+    const last = kept[kept.length - 1];
+    if (last && last.toLowerCase() === sentence.toLowerCase()) continue;
+    kept.push(sentence);
+  }
+  return kept.join(" ");
+}
+
+function normSpeech(value) {
+  return value
+    .toLowerCase()
+    .replace(/[«»„“”"'.,:;!\-–—()/]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeSpeech(parts) {
+  const cleaned = [];
+  for (const raw of parts) {
+    const text = squeezeRepeats(raw);
+    if (!text) continue;
+    const key = normSpeech(text);
+    if (!key) continue;
+    if (cleaned.some((prev) => {
+      const other = normSpeech(prev);
+      return other === key || (other.includes(key) && key.length > 18);
+    })) continue;
+    for (let i = cleaned.length - 1; i >= 0; i -= 1) {
+      const other = normSpeech(cleaned[i]);
+      if (key.includes(other) && other.length > 18 && key.length > other.length + 8) cleaned.splice(i, 1);
+    }
+    cleaned.push(text);
+  }
+  return cleaned;
+}
+
+function slideSpeech(slide) {
+  const parts = [slide.title];
+  const walk = (blocks) => {
+    for (const el of blocks || []) {
+      if (el.t === "p" || el.t === "label") parts.push(el.text);
+      else if (el.t === "ul" || el.t === "ol") parts.push(...el.items);
+      else if (el.t === "cols") el.cols.forEach(walk);
+    }
+  };
+  walk(slide.blocks);
+  return dedupeSpeech(parts);
+}
+
+function pickGermanVoice() {
+  const voices = speechSynthesis.getVoices();
+  return voices.find((voice) => voice.lang === "de-DE")
+    || voices.find((voice) => voice.lang && voice.lang.toLowerCase().startsWith("de"))
+    || null;
+}
+
+function stopSpeak() {
+  speechGen += 1;
+  if (canSpeak) speechSynthesis.cancel();
+  document.querySelectorAll("[data-speak]").forEach((button) => {
+    button.textContent = "Vorlesen";
+    button.setAttribute("aria-pressed", "false");
+  });
+}
+
+function startSpeak(parts, button) {
+  const lines = dedupeSpeech(parts);
+  if (!lines.length || !canSpeak) return;
+  stopSpeak();
+  const gen = speechGen;
+  if (button) {
+    button.textContent = "Stopp";
+    button.setAttribute("aria-pressed", "true");
+  }
+  const begin = () => {
+    if (gen !== speechGen) return;
+    const voice = pickGermanVoice();
+    const queue = lines.flatMap((line) => {
+      if (line.length <= 240) return [line];
+      const bits = line.split(/(?<=[.!?;:])\s+/);
+      const chunks = [];
+      let buffer = "";
+      for (const bit of bits) {
+        const nextBit = buffer ? `${buffer} ${bit}` : bit;
+        if (buffer && nextBit.length > 240) {
+          chunks.push(buffer);
+          buffer = bit;
+        } else buffer = nextBit;
+      }
+      if (buffer) chunks.push(buffer);
+      return chunks;
+    });
+    let index = 0;
+    const next = () => {
+      if (gen !== speechGen) return;
+      if (index >= queue.length) {
+        stopSpeak();
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(queue[index]);
+      utterance.lang = "de-DE";
+      utterance.rate = 0.96;
+      if (voice) utterance.voice = voice;
+      utterance.onend = () => {
+        index += 1;
+        next();
+      };
+      utterance.onerror = (event) => {
+        if (gen !== speechGen) return;
+        if (event.error === "interrupted" || event.error === "canceled") return;
+        stopSpeak();
+      };
+      speechSynthesis.speak(utterance);
+    };
+    next();
+  };
+  if (speechSynthesis.getVoices().length) begin();
+  else {
+    const timer = setTimeout(begin, 400);
+    speechSynthesis.addEventListener("voiceschanged", () => {
+      clearTimeout(timer);
+      begin();
+    }, { once: true });
+  }
+}
+
 function neighbors(mod, sec, index) {
   const prev = index > 0 ? { href: hrefSlide(mod, sec, index - 1), label: "Zurück" } : { href: `#/m/${mod.id}/s/${sec.id}`, label: "Zur Übersicht" };
   if (index < sec.slides.length - 1) {
@@ -401,6 +543,7 @@ function slideView(modId, secId, index) {
     const label = group.title.length > 48 ? `${group.title.slice(0, 46)}…` : group.title;
     return `<a class="${on ? "on" : ""}" href="${hrefSlide(mod, sec, group.start)}">${esc(label)}</a>`;
   }).join("");
+  speechSets.slide = slideSpeech(slide);
   const reading = slide.blocks.length
     ? `<article class="reading">
         ${slide.kind === "question" ? `<p class="label">Frage auf der Folie</p>` : `<p class="code">${esc(sec.code)} · Folie ${slide.n}</p>`}
@@ -426,7 +569,7 @@ function slideView(modId, secId, index) {
     </div>
     <div class="dock">
       <a class="btn ghost" id="prev" href="${nav.prev.href}">${esc(nav.prev.label)}</a>
-      <span class="keys">Pfeiltasten blättern · Esc zurück</span>
+      ${canSpeak ? `<button type="button" class="btn ghost" data-speak="slide" aria-pressed="false" title="Liest den Folientext vor. Dieselbe Zeile nur einmal.">Vorlesen</button>` : `<span class="keys">Pfeiltasten blättern · Esc zurück</span>`}
       <a class="btn" id="next" href="${nav.next.href}">${esc(nav.next.label)}</a>
     </div>
   `, mod.id);
@@ -451,6 +594,7 @@ function searchView(query) {
 }
 
 function render() {
+  stopSpeak();
   const route = parseHash();
   if (route.view === "module") moduleView(route.mod);
   else if (route.view === "section") sectionView(route.mod, route.sec);
@@ -476,6 +620,7 @@ function openGloss(id) {
   const entry = GLOSSAR_BY_ID[id];
   if (!entry) return;
   const gloss = document.getElementById("gloss");
+  speechSets.gloss = dedupeSpeech([entry.title, entry.text]);
   const video = entry.video
     ? `<button type="button" class="btn" id="gloss-play">Video ansehen</button>
        <p class="source">${esc(entry.video.title)} · ${esc(entry.video.by)}</p>
@@ -486,7 +631,10 @@ function openGloss(id) {
     <article class="gloss-card" role="dialog" aria-modal="true" aria-labelledby="gloss-title">
       <div class="gloss-top">
         <p class="label">Zum Nachschlagen</p>
-        <button type="button" class="btn ghost" data-gloss-close>Schließen</button>
+        <span>
+          ${canSpeak ? `<button type="button" class="btn ghost" data-speak="gloss">Vorlesen</button>` : ""}
+          <button type="button" class="btn ghost" data-gloss-close>Schließen</button>
+        </span>
       </div>
       <h3 id="gloss-title">${esc(entry.title)}</h3>
       <p>${esc(entry.text)}</p>
@@ -505,6 +653,15 @@ function openGloss(id) {
     `;
   });
 }
+
+document.addEventListener("click", (event) => {
+  const speakButton = event.target.closest("[data-speak]");
+  if (!speakButton) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (speakButton.getAttribute("aria-pressed") === "true") stopSpeak();
+  else startSpeak(speechSets[speakButton.dataset.speak] || [], speakButton);
+});
 
 app.addEventListener("click", (event) => {
   const term = event.target.closest("[data-gloss]");

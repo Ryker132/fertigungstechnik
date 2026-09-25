@@ -632,7 +632,13 @@ tbody th {
   backdrop-filter: blur(10px);
 }
 
-.dock .btn { min-width: 140px; justify-content: center; }
+.dock .btn { min-width: 120px; justify-content: center; }
+
+.btn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #f6f1e7;
+}
 
 .keys { color: var(--ink-soft); font-size: 13px; align-self: center; }
 
